@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"TomAI.QueueConsumer/dataaccess"
 	"TomAI.QueueConsumer/domain"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
@@ -17,40 +19,36 @@ func main() {
 		log.Fatal("Connection Error...")
 	}
 
+	//var beerReviews []domain.BeerReview
+
 	go func() {
 		for d := range msgs {
-			// Create a new Person object
 			review := domain.BeerReview{}
-
-			//log.Printf("msg: %s", d.Body)
-			// Unmarshal the message into a Person object
 			err := json.Unmarshal(d.Body, &review)
 
 			if err != nil {
 				log.Printf("Error decoding JSON: %s", err)
+				continue
 			}
 
-			// Now you can access the fields of the message as properties of the person object
-			log.Printf("Name: %s", review.Beer.Name)
-			save(review.Beer)
+			//beerReviews = append(beerReviews, review)
+
+			var id, erro = dataaccess.InsertReview(review)
+			if erro != nil {
+				log.Printf("Error checking beer: %s", err)
+				continue
+			} else {
+				print(id)
+			}
 		}
 	}()
 
-	// Don't forget to close the connection and channel when you're done
+	fmt.Println("Pressione Enter para sair...")
+	fmt.Scanln()
+
 	defer rabbit.Close()
 }
 
-func save(beer domain.Beer) {
-
-	log.Printf("Openning Connection:")
-	var db dataaccess.Database
-	db.Init()
-	defer db.Close()
-
-	err := db.InsertBeer(beer)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("Beer Saved!")
+func print(beerId int) {
+	fmt.Printf("| BeerId! #%d\n", beerId)
 }

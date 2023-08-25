@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	"TomAI.QueueConsumer/domain"
-
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -14,87 +14,118 @@ type Database struct {
 	Conn *sql.DB
 }
 
-func (db *Database) Init() {
-	connectionString := fmt.Sprintf("%s:%s@/%s", "root", "Crvg#2108", "TomAI")
-
-	var err error
-	db.Conn, err = sql.Open("mysql", connectionString)
+func InsertReview(review domain.BeerReview) (int, error) {
+	var beerId, err = CheckIfBeerExists(review.Beer.Name)
 
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err = db.Conn.Ping(); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func (db *Database) CheckIfBeerExists(beername string) (int, error) {
-	var id int
-	row := db.Conn.QueryRow("Select Id from Beer where Name = ?", beername)
-	err := row.Scan(&id)
-
-	if err != nil {
-		return id, err
-	} else {
+		log.Printf(err.Error())
 		return 0, err
-	}
-}
-
-func (db *Database) CheckIfBreweryExists(breweryid int) (int, error) {
-	var id int
-	row := db.Conn.QueryRow("Select Id from Brewery where Id = ?", breweryid)
-	err := row.Scan(&id)
-
-	if err != nil {
-		return id, err
 	} else {
-		return 0, err
-	}
-}
+		if beerId == -1 {
+			var breweryId = GetBreweryId(review.Beer.BrewerId)
+			var styleId = GetStyleId(review.Beer.Style)
 
-func (db *Database) CheckIfStyleExists(stylename string) (int, error) {
-	var id int
-	row := db.Conn.QueryRow("Select Id from BeerStyle where Name = ?", stylename)
-	err := row.Scan(&id)
+			beerId, err = InsertBeer(review.Beer.Name, styleId, review.Beer.ABV, breweryId)
+			if err != nil {
+				fmt.Printf(err.Error())
+			}
 
-	if err != nil {
-		return id, err
-	} else {
-		return 0, err
-	}
-}
+			return beerId, nil
+		}
 
-func (db *Database) InsertBeer(beer domain.Beer) error {
-	var brewery, err = db.CheckIfBreweryExists(beer.BrewerId)
-	if brewery == 0 {
-		brewery, err = db.InsertBrewery(beer.BrewerId)
+		sucesso, err := InsertBeerReview(review.Review, beerId)
 
 		if err != nil {
-			log.Fatal("Erro ao salvar novo estilo. Beer: %s | Style: %s", beer.Name, beer.Style)
+			fmt.Printf(err.Error())
+		} else if sucesso == false {
+			fmt.Printf("Erro ao inserir Revisão")
 		}
+
+		return beerId, nil
 	}
 
-	var style, stylecheckerr = db.CheckIfStyleExists(beer.Style)
-	if style == 0 {
-		style, stylecheckerr = db.InsertStyle(beer.Style)
-
-		if stylecheckerr != nil {
-			log.Fatal("Erro ao salvar novo estilo. Beer: %s | Style: %s", beer.Name, beer.Style)
-		}
-	}
-
-	insert, err := db.Conn.Query("Insert into Beer (Name, BreweryId, ABV, StyleId) Values  (?, ?, ?)", beer.Name, brewery, beer.ABV, style)
-	if err != nil {
-		return err
-	}
-
-	defer insert.Close()
-	return nil
+	/**/
 }
 
-func (db *Database) InsertBrewery(breweryid int) (int, error) {
-	insert, err := db.Conn.Exec("Insert into Brewery (Id) Values  (?)", breweryid)
+//-------- Review..
+
+func InsertBeerReview(review domain.Review, beerId int) (bool, error) {
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, err := sql.Open("mysql", dsn)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer conn.Close()
+
+	insert, err := conn.Exec("Insert into Review (Appearence, Aroma, Palate, Taste, Overall, ReviewDate, Profile, Text, BeerId) Values  (?,?,?,?,?,?,?,?,?)",
+		review.Appearence, review.Aroma, review.Palate, review.Taste, review.Overall, time.Unix(int64(review.Time), 0), review.ProfileName, review.Text, beerId)
+
+	if err != nil {
+		fmt.Printf(err.Error())
+		return false, err
+	}
+
+	insertedRows, err := insert.RowsAffected()
+
+	if insertedRows > 0 {
+		return true, nil
+	} else {
+
+		fmt.Printf(err.Error())
+		return false, err
+	}
+}
+
+//-------- Style..
+
+func GetStyleId(styleName string) int {
+	var styleId, err = CheckIfStyleExists(styleName)
+
+	if err != nil {
+		log.Printf(err.Error())
+		styleId = -1
+	} else {
+		if styleId == -1 {
+			styleId, err = InsertStyle(styleName)
+		}
+	}
+	return styleId
+}
+
+func CheckIfStyleExists(stylename string) (int, error) {
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, err := sql.Open("mysql", dsn)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer conn.Close()
+
+	var id int
+	row := conn.QueryRow("Select Id from BeerStyle where Name = ?", stylename)
+	erro := row.Scan(&id)
+
+	if erro != nil {
+		return -1, err
+	} else {
+		return id, nil
+	}
+}
+
+func InsertStyle(stylename string) (int, error) {
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, err := sql.Open("mysql", dsn)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer conn.Close()
+
+	insert, err := conn.Exec("Insert into BeerStyle (Name) Values  (?)", stylename)
 
 	if err != nil {
 		return 0, err
@@ -109,8 +140,106 @@ func (db *Database) InsertBrewery(breweryid int) (int, error) {
 	return int(bid), err
 }
 
-func (db *Database) InsertStyle(stylename string) (int, error) {
-	insert, err := db.Conn.Exec("Insert into BeerStyle (Name) Values  (?)", stylename)
+//-------- Brewery..
+
+func GetBreweryId(breweryId int) int {
+	var bid, err = CheckIfBreweryExists(breweryId)
+
+	if err != nil {
+		log.Printf(err.Error())
+	} else {
+		if bid == -1 {
+			bid, err = InsertBrewery(breweryId)
+		}
+	}
+
+	return bid
+}
+
+func CheckIfBreweryExists(breweryId int) (int, error) {
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, err := sql.Open("mysql", dsn)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer conn.Close()
+
+	var id int
+	row := conn.QueryRow("Select Id from Brewery where Id = ?", breweryId)
+	erro := row.Scan(&id)
+
+	if erro != nil {
+		return -1, err
+	} else {
+		return id, nil
+	}
+}
+
+func InsertBrewery(breweryId int) (int, error) {
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, openerr := sql.Open("mysql", dsn)
+
+	if openerr != nil {
+		panic(openerr)
+	}
+
+	defer conn.Close()
+
+	insertCommand, inserterr := conn.Exec("insert into brewery (Id) values  (?)", breweryId)
+
+	if inserterr != nil {
+		fmt.Printf(" Error: %s", inserterr.Error())
+		return 0, inserterr
+	}
+
+	rowsAffected, err := insertCommand.RowsAffected()
+
+	if err != nil {
+		fmt.Printf("Erro ao inserir Brewery: %d", breweryId)
+	} else if rowsAffected > 0 {
+		return int(breweryId), inserterr
+	}
+
+	panic(err)
+}
+
+//-------- Beer..
+
+func CheckIfBeerExists(beername string) (int, error) {
+
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, err := sql.Open("mysql", dsn)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer conn.Close()
+
+	var id int
+	row := conn.QueryRow("Select Id from Beer where Name = ?", beername)
+	erro := row.Scan(&id)
+
+	if erro != nil {
+		return -1, err
+	} else {
+		return id, nil
+	}
+}
+
+func InsertBeer(beerName string, styleId int, abv float64, breweryId int) (int, error) {
+	dsn := "root:Crvg#2108@tcp(localhost:3306)/tomai"
+	conn, err := sql.Open("mysql", dsn)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer conn.Close()
+
+	insert, err := conn.Exec("Insert into Beer (Name, StyleId, ABV, BreweryId) Values (?,?,?,?)", beerName, styleId, abv, breweryId)
 
 	if err != nil {
 		return 0, err
@@ -123,8 +252,4 @@ func (db *Database) InsertStyle(stylename string) (int, error) {
 	}
 
 	return int(bid), err
-}
-
-func (db *Database) Close() {
-	db.Conn.Close()
 }

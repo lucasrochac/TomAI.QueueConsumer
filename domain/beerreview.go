@@ -9,7 +9,7 @@ type Beer struct {
 }
 
 type Review struct {
-	Appearance  float64 `json:"appearance"`
+	Appearence  float64 `json:"Appearence"`
 	Aroma       float64 `json:"aroma"`
 	Palate      float64 `json:"palate"`
 	Taste       float64 `json:"taste"`
